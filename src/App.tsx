@@ -113,8 +113,13 @@ export default function App() {
       try {
         const res = await fetch('/api/status');
         if (res.ok) {
-          const status = await res.json();
-          setIsMongoConnected(status.mongodb);
+          const text = await res.text();
+          try {
+            const status = JSON.parse(text);
+            setIsMongoConnected(status.mongodb);
+          } catch (e) {
+            console.error('Failed to parse status JSON', text);
+          }
         }
       } catch (err) {
         console.error('Status check failed', err);
@@ -166,7 +171,15 @@ export default function App() {
     try {
       const res = await fetch('/api/me');
       if (res.ok) {
-        const data = await res.json();
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          console.error('Failed to parse user JSON', text);
+          return;
+        }
+        
         setUser(data);
         // Sync state from DB
         setUserProfile({
@@ -203,9 +216,16 @@ export default function App() {
     
     try {
       const res = await fetch('/api/auth/url');
-      const data = await res.json();
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error(`Server returned invalid response: ${text.substring(0, 100)}...`);
+      }
+      
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to get auth URL');
+        throw new Error(data.error || `Server error: ${res.status}`);
       }
       authWindow.location.href = data.url;
     } catch (err: any) {
@@ -1166,6 +1186,9 @@ export default function App() {
                       </ul>
                       <p className="text-xs text-amber-600 dark:text-amber-400 mt-2 font-medium">
                         ⚠️ Ensure you have whitelisted "0.0.0.0/0" in your MongoDB Atlas Network Access.
+                      </p>
+                      <p className="text-xs text-slate-500 mt-2">
+                        <strong>Note:</strong> If your password contains special characters (@, #, $), they must be <strong>URL-encoded</strong> (e.g., @ as %40).
                       </p>
                     </div>
                   </div>

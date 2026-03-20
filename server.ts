@@ -41,16 +41,17 @@ if (!MONGODB_URI) {
     .catch(err => {
       console.error('❌ MongoDB connection error:', err.message);
       
-      if (err.message.includes('EBADNAME')) {
-        console.error('👉 FIX: Your password likely contains special characters (@, #, $) that need to be URL-encoded.');
-        console.error('Example: Replace "@" with "%40", "#" with "%23", and "$" with "%24" in your MONGODB_URI.');
+      if (err.message.includes('bad auth') || err.message.includes('authentication failed')) {
+        console.error('👉 FIX: Authentication failed. Please check your database username and password.');
+        console.error('👉 IMPORTANT: If your password contains special characters (@, #, $, etc.), they MUST be URL-encoded.');
+        console.error('   Example: Replace "@" with "%40", "#" with "%23", "$" with "%24".');
+      } else if (err.message.includes('EBADNAME')) {
+        console.error('👉 FIX: Your connection string format is invalid. Ensure it follows the mongodb+srv://... format.');
       } else if (err.message.includes('whitelist') || err.message.includes('Could not connect to any servers')) {
         console.error('👉 FIX: You need to whitelist your IP in MongoDB Atlas.');
-        console.error('Go to "Network Access" in Atlas and click "Allow Access from Anywhere" (0.0.0.0/0).');
+        console.error('   Go to "Network Access" in Atlas and click "Allow Access from Anywhere" (0.0.0.0/0).');
       } else if (err.message.includes('ECONNREFUSED')) {
         console.error('👉 FIX: It looks like you are trying to connect to a local MongoDB. Please use a cloud-hosted MongoDB Atlas URI.');
-      } else if (err.message.includes('Authentication failed')) {
-        console.error('👉 FIX: Your database username or password in the MONGODB_URI is incorrect.');
       }
     });
 }
@@ -92,10 +93,20 @@ const sessionConfig: any = {
 };
 
 if (MONGODB_URI) {
-  sessionConfig.store = MongoStore.create({
-    mongoUrl: MONGODB_URI,
-    ttl: 14 * 24 * 60 * 60 // 14 days
-  });
+  try {
+    sessionConfig.store = MongoStore.create({
+      mongoUrl: MONGODB_URI,
+      ttl: 14 * 24 * 60 * 60, // 14 days
+      autoRemove: 'native'
+    });
+    // Handle store errors to prevent app crash
+    sessionConfig.store.on('error', (error: any) => {
+      console.error('❌ MongoDB Session Store Error:', error.message);
+    });
+  } catch (error: any) {
+    console.error('❌ Failed to initialize MongoDB session store:', error.message);
+    console.warn('⚠️ Falling back to in-memory session store.');
+  }
 }
 
 app.use(session(sessionConfig));
@@ -341,6 +352,20 @@ app.post('/api/user/reset', async (req, res) => {
     }
   }, { new: true });
   res.json(updatedUser);
+});
+
+// 404 Handler for API routes
+app.use('/api/*', (req, res) => {
+  res.status(404).json({ error: 'API route not found' });
+});
+
+// Global Error Handler
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error('Unhandled Error:', err);
+  res.status(err.status || 500).json({
+    error: err.message || 'A server error occurred',
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+  });
 });
 
 // Vite Middleware for Development
