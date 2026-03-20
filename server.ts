@@ -8,6 +8,8 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { User } from './server/models/User'; 
 
 dotenv.config();
@@ -54,9 +56,28 @@ if (!MONGODB_URI) {
 }
 
 // Middleware
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      "img-src": ["'self'", "data:", "https://picsum.photos", "https://*.googleusercontent.com", "https://*.picsum.photos"],
+      "script-src": ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // Needed for Vite/React
+    },
+  },
+}));
+
+// Rate limiting for API routes
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: { message: 'Too many requests from this IP, please try again after 15 minutes' }
+});
+app.use('/api/', apiLimiter);
+
 app.use(express.json());
 
 // Session configuration
+const isProduction = process.env.NODE_ENV === 'production' || !!process.env.VERCEL;
 const sessionConfig: any = {
   secret: process.env.SESSION_SECRET || 'career-counselor-secret-key-2026',
   resave: false,
@@ -64,8 +85,8 @@ const sessionConfig: any = {
   proxy: true,
   cookie: {
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    secure: true,
-    sameSite: 'none',
+    secure: isProduction,
+    sameSite: isProduction && !process.env.APP_URL?.includes('run.app') ? 'lax' : 'none', // 'none' for iframe, 'lax' for standalone
     httpOnly: true
   }
 };

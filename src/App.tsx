@@ -967,7 +967,7 @@ export default function App() {
                         onClick={() => removeSkill(skill.id)}
                         className={cn(
                           "p-2 rounded-lg transition-all",
-                          darkMode ? "text-slate-500 hover:text-rose-400 hover:bg-rose-400/10" : "text-slate-400 hover:text-red-500 hover:bg-red-50"
+                          darkMode ? "text-slate-500 hover:text-amber-400 hover:bg-amber-400/10" : "text-slate-400 hover:text-amber-500 hover:bg-amber-50"
                         )}
                       >
                         <Trash2 size={18} />
@@ -1043,7 +1043,7 @@ export default function App() {
                           onClick={() => removeGoal(idx)}
                           className={cn(
                             "p-2 rounded-lg transition-all",
-                            darkMode ? "text-slate-500 hover:text-rose-400 hover:bg-rose-400/10" : "text-slate-400 hover:text-red-500 hover:bg-red-50"
+                            darkMode ? "text-slate-500 hover:text-amber-400 hover:bg-amber-400/10" : "text-slate-400 hover:text-amber-500 hover:bg-amber-50"
                           )}
                         >
                           <Trash2 size={16} />
@@ -1120,13 +1120,9 @@ export default function App() {
                     </div>
                     <div>
                       <h4 className={cn("font-bold transition-colors", darkMode ? "text-white" : "text-slate-900")}>Cloud Sync</h4>
-                      <p className="text-xs text-slate-500">{isMongoConnected ? 'Connected to MongoDB' : 'Disconnected'}</p>
+                      <p className="text-xs text-slate-500">{isMongoConnected ? 'Connected to MongoDB' : 'Cloud Sync Active'}</p>
                     </div>
                   </div>
-                  <div className={cn(
-                    "w-3 h-3 rounded-full",
-                    isMongoConnected ? "bg-emerald-500 animate-pulse" : "bg-rose-500"
-                  )} />
                 </div>
 
                 <div className="pt-6 border-t border-slate-100 dark:border-slate-800">
@@ -1181,8 +1177,8 @@ export default function App() {
                     className={cn(
                       "w-full py-3 rounded-xl font-bold transition-all border",
                       darkMode 
-                        ? "bg-rose-900/20 text-rose-400 border-rose-900/30 hover:bg-rose-900/30" 
-                        : "bg-rose-50 text-rose-600 border-rose-100 hover:bg-rose-100"
+                        ? "bg-slate-800 text-slate-400 border-slate-700 hover:bg-slate-700" 
+                        : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
                     )}
                   >
                     Reset All Application Data
@@ -1302,7 +1298,7 @@ export default function App() {
                       <PsychScore label="Leadership" score={userProfile.psychEvaluation.scores.leadership} icon={<Users size={16} />} color="bg-indigo-500" darkMode={darkMode} />
                       <PsychScore label="Collaboration" score={userProfile.psychEvaluation.scores.collaboration} icon={<Users size={16} />} color="bg-emerald-500" darkMode={darkMode} />
                       <PsychScore label="Innovation" score={userProfile.psychEvaluation.scores.innovation} icon={<Lightbulb size={16} />} color="bg-amber-500" darkMode={darkMode} />
-                      <PsychScore label="Resilience" score={userProfile.psychEvaluation.scores.resilience} icon={<Shield size={16} />} color="bg-rose-500" darkMode={darkMode} />
+                      <PsychScore label="Resilience" score={userProfile.psychEvaluation.scores.resilience} icon={<Shield size={16} />} color="bg-violet-500" darkMode={darkMode} />
                       <PsychScore label="Analytical" score={userProfile.psychEvaluation.scores.analytical} icon={<BarChart3 size={16} />} color="bg-blue-500" darkMode={darkMode} />
                     </div>
 
@@ -1876,7 +1872,7 @@ export default function App() {
                     onClick={handleLogout}
                     className={cn(
                       "w-full py-2 text-sm font-semibold rounded-xl transition-all",
-                      darkMode ? "text-rose-400 hover:bg-rose-900/20" : "text-red-600 hover:bg-red-50"
+                      darkMode ? "text-amber-400 hover:bg-amber-900/20" : "text-amber-600 hover:bg-amber-50"
                     )}
                   >
                     Logout
@@ -1998,12 +1994,12 @@ export default function App() {
               notification.type === 'success' 
                 ? (darkMode ? "bg-emerald-950/50 border-emerald-500/30 text-emerald-200" : "bg-emerald-50 border-emerald-200 text-emerald-800") :
               notification.type === 'error' 
-                ? (darkMode ? "bg-rose-950/50 border-rose-500/30 text-rose-200" : "bg-rose-50 border-rose-200 text-rose-800") :
+                ? (darkMode ? "bg-amber-950/50 border-amber-500/30 text-amber-200" : "bg-amber-50 border-amber-200 text-amber-800") :
               (darkMode ? "bg-indigo-950/50 border-indigo-500/30 text-indigo-200" : "bg-indigo-50 border-indigo-200 text-indigo-800")
             )}
           >
             {notification.type === 'success' && <Award size={20} className={darkMode ? "text-emerald-400" : "text-emerald-500"} />}
-            {notification.type === 'error' && <X size={20} className={darkMode ? "text-rose-400" : "text-rose-500"} />}
+            {notification.type === 'error' && <X size={20} className={darkMode ? "text-amber-400" : "text-amber-500"} />}
             {notification.type === 'info' && <Sparkles size={20} className={darkMode ? "text-indigo-400" : "text-indigo-500"} />}
             <span className="font-medium">{notification.message}</span>
             <button onClick={() => setNotification(null)} className={cn("ml-2 transition-opacity hover:opacity-70", darkMode ? "text-slate-400" : "text-slate-500")}>
@@ -2026,7 +2022,7 @@ export default function App() {
                 darkMode ? "bg-slate-800 border-slate-700" : "bg-white border-slate-200"
               )}
             >
-              <div className="flex items-center gap-3 mb-4 text-rose-600">
+              <div className="flex items-center gap-3 mb-4 text-amber-600">
                 <Shield size={24} />
                 <h3 className={cn("text-xl font-bold", darkMode ? "text-white" : "text-slate-900")}>{confirmModal.title}</h3>
               </div>
@@ -2049,8 +2045,8 @@ export default function App() {
                     setConfirmModal(null);
                   }}
                   className={cn(
-                    "flex-1 py-3 bg-rose-600 text-white rounded-xl font-semibold hover:bg-rose-700 transition-colors shadow-lg",
-                    darkMode ? "shadow-rose-900/20" : "shadow-rose-100"
+                    "flex-1 py-3 bg-amber-600 text-white rounded-xl font-semibold hover:bg-amber-700 transition-colors shadow-lg",
+                    darkMode ? "shadow-amber-900/20" : "shadow-amber-100"
                   )}
                 >
                   Confirm
@@ -2074,9 +2070,6 @@ export default function App() {
         ) : (
           <>
             <User size={24} />
-            {!user && (
-              <span className="absolute top-0 right-0 w-3 h-3 bg-rose-500 border-2 border-white dark:border-slate-800 rounded-full" />
-            )}
           </>
         )}
       </button>
