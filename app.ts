@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import { User } from './server/models/User'; 
+import { User } from './backend/models/User.js'; 
 
 dotenv.config();
 
