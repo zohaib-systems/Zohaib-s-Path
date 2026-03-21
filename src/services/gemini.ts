@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { Skill, Course, Proficiency, PsychEvaluation, CareerGoal, RoadmapStep, ProficiencyScores } from "../types";
+import { Skill, Course, Proficiency, PsychEvaluation, CareerGoal, RoadmapStep, ProficiencyScores, UserProfile } from "../types.js";
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
 
@@ -135,17 +135,25 @@ export const generatePsychReport = async (
 export const getCareerCounseling = async (
   message: string,
   history: { role: 'user' | 'model', text: string }[],
-  userProfile: any
+  userProfile: UserProfile,
+  roadmap: RoadmapStep[]
 ) => {
   const model = "gemini-3.1-pro-preview";
   const systemInstruction = `You are an expert Career Counselor. Your goal is to help users navigate their professional journey.
+  
   Current User Profile: ${JSON.stringify(userProfile)}
+  Current Roadmap: ${JSON.stringify(roadmap)}
+  
+  When generating advice, pay close attention to:
+  1. **Proficiency Scores**: Use the 'proficiencyScores' (Frontend, Backend, DevOps, DataScience, MachineLearning) to identify strengths and weaknesses. If a user asks about a specific field, reference their score and suggest ways to improve it if it's low, or leverage it if it's high.
+  2. **Roadmap Progress**: Reference the user's 'roadmap' milestones. If they are stuck, suggest the next logical step from their roadmap. If they have completed steps, celebrate their progress and help them prepare for the next milestone.
+  3. **Skill Gaps**: Compare their current skills against their career goals.
+  4. **Industry Trends**: Provide context on how their current skills and goals align with the market.
   
   Provide actionable, empathetic, and strategic advice. Focus on:
-  1. Skill gaps based on their goals.
-  2. Industry trends.
-  3. Networking strategies.
-  4. Resume and interview tips.
+  1. Networking strategies.
+  2. Resume and interview tips.
+  3. Specific learning resources based on their roadmap.
   
   Keep responses concise and professional. Use Markdown for formatting.`;
 

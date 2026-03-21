@@ -50,9 +50,9 @@ import {
   Cell
 } from 'recharts';
 import Markdown from 'react-markdown';
-import { Skill, Course, Proficiency, UserProfile, ChatMessage, PsychEvaluation, RoadmapStep, CareerGoal, ProficiencyScores } from './types';
-import { getCareerCounseling, evaluateSkillsAndSuggestCourses, generatePsychReport, generateRoadmap, getProficiencyCategorization } from './services/gemini';
-import { cn } from './lib/utils';
+import { Skill, Course, Proficiency, UserProfile, ChatMessage, PsychEvaluation, RoadmapStep, CareerGoal, ProficiencyScores } from './types.js';
+import { getCareerCounseling, evaluateSkillsAndSuggestCourses, generatePsychReport, generateRoadmap, getProficiencyCategorization } from './services/gemini.js';
+import { cn } from './lib/utils.js';
 
 const INITIAL_SKILLS: Skill[] = [];
 
@@ -341,7 +341,7 @@ export default function App() {
     setIsTyping(true);
 
     try {
-      const response = await getCareerCounseling(userMsg, chatMessages, userProfile);
+      const response = await getCareerCounseling(userMsg, chatMessages, userProfile, roadmap);
       setChatMessages(prev => [...prev, { role: 'model', text: response || 'I am sorry, I could not process that.' }]);
     } catch (error: any) {
       console.error(error);
