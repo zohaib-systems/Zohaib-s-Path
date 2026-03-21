@@ -56,12 +56,50 @@ import { cn } from './lib/utils.js';
 
 const INITIAL_SKILLS: Skill[] = [];
 
+// Helper to get or create a profile ID for cross-device sync without login
+const getProfileId = () => {
+  let id = localStorage.getItem('career_counselor_profile_id');
+  if (!id) {
+    id = 'profile_' + Math.random().toString(36).substring(2, 15);
+    localStorage.setItem('career_counselor_profile_id', id);
+  }
+  return id;
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'skills' | 'goals' | 'counselor' | 'courses' | 'psych' | 'settings'>('dashboard');
-  const [user, setUser] = useState<any>(null);
+  const [profileId, setProfileId] = useState(getProfileId());
   const [isLoadingUser, setIsLoadingUser] = useState(true);
   const [isMongoConnected, setIsMongoConnected] = useState(true);
+  const [hasAIKey, setHasAIKey] = useState(true); // Default to true, will check in useEffect
   const [darkMode, setDarkMode] = useState(false);
+
+  // Check for AI API Key selection (for paid tier models)
+  useEffect(() => {
+    const checkAIKey = async () => {
+      // @ts-ignore - window.aistudio is injected by the platform
+      if (window.aistudio?.hasSelectedApiKey) {
+        // @ts-ignore
+        const hasKey = await window.aistudio.hasSelectedApiKey();
+        // Also check if default key is present
+        const hasDefaultKey = !!process.env.GEMINI_API_KEY;
+        setHasAIKey(hasKey || hasDefaultKey);
+      } else {
+        setHasAIKey(!!process.env.GEMINI_API_KEY);
+      }
+    };
+    checkAIKey();
+  }, []);
+
+  const handleConnectAI = async () => {
+    // @ts-ignore
+    if (window.aistudio?.openSelectKey) {
+      // @ts-ignore
+      await window.aistudio.openSelectKey();
+      setHasAIKey(true); // Assume success after opening dialog
+      setNotification({ message: "AI API Key selection opened. Please select your key.", type: 'info' });
+    }
+  };
   const [userProfile, setUserProfile] = useState<UserProfile>({
     name: 'Guest User',
     currentRole: 'Software Engineer',
@@ -111,76 +149,30 @@ export default function App() {
   useEffect(() => {
     const checkStatus = async () => {
       try {
-        const res = await fetch('/api/status');
+        const res = await fetch('/api/status', {
+          headers: { 'x-profile-id': profileId }
+        });
         if (res.ok) {
-          const text = await res.text();
-          try {
-            const status = JSON.parse(text);
-            setIsMongoConnected(status.mongodb);
-          } catch (e) {
-            console.error('Failed to parse status JSON', text);
-          }
+          const status = await res.json();
+          setIsMongoConnected(status.mongodb);
         }
       } catch (err) {
         console.error('Status check failed', err);
       }
     };
     
-    // Load local data first for immediate UI feedback
-    const localData = localStorage.getItem('career_counselor_data');
-    if (localData) {
-      try {
-        const parsed = JSON.parse(localData);
-        if (parsed.userProfile) {
-          setUserProfile(prev => ({ 
-            ...prev, 
-            ...parsed.userProfile,
-            // Ensure goals are preserved if they exist in local storage
-            goals: parsed.userProfile.goals || prev.goals 
-          }));
-        }
-        if (parsed.chatMessages) setChatMessages(parsed.chatMessages);
-        if (parsed.evaluation) setEvaluation(parsed.evaluation);
-        if (parsed.suggestedCourses) setSuggestedCourses(parsed.suggestedCourses);
-        if (parsed.roadmap) setRoadmap(parsed.roadmap);
-      } catch (e) {
-        console.error('Failed to parse local data', e);
-      }
-    }
-
     checkStatus();
     fetchUser();
-    
-    const handleOAuthMessage = (event: MessageEvent) => {
-      const origin = event.origin;
-      // Validate origin is from AI Studio preview or localhost
-      if (!origin.endsWith('.run.app') && !origin.includes('localhost')) {
-        return;
-      }
-      if (event.data?.type === 'OAUTH_AUTH_SUCCESS') {
-        fetchUser();
-        setNotification({ message: "Successfully logged in!", type: 'success' });
-      }
-    };
-    
-    window.addEventListener('message', handleOAuthMessage);
-    return () => window.removeEventListener('message', handleOAuthMessage);
-  }, []);
+  }, [profileId]);
 
   const fetchUser = async () => {
     try {
-      const res = await fetch('/api/me');
+      const res = await fetch('/api/me', {
+        headers: { 'x-profile-id': profileId }
+      });
       if (res.ok) {
-        const text = await res.text();
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch (e) {
-          console.error('Failed to parse user JSON', text);
-          return;
-        }
+        const data = await res.json();
         
-        setUser(data);
         // Sync state from DB
         setUserProfile({
           name: data.name || 'Guest User',
@@ -195,9 +187,6 @@ export default function App() {
         if (data.evaluation) setEvaluation(data.evaluation);
         if (data.suggestedCourses) setSuggestedCourses(data.suggestedCourses);
         if (data.roadmap) setRoadmap(data.roadmap);
-      } else {
-        // Not logged in, ensure name is Guest
-        setUserProfile(prev => ({ ...prev, name: prev.name === 'Guest User' ? 'Guest User' : prev.name }));
       }
     } catch (err) {
       console.error('Failed to fetch user', err);
@@ -206,104 +195,61 @@ export default function App() {
     }
   };
 
-  const handleLogin = async () => {
-    // Open the window immediately to avoid popup blockers
-    const authWindow = window.open('about:blank', 'google_auth', 'width=600,height=700');
-    if (!authWindow) {
-      setNotification({ message: "Popup blocked! Please allow popups for this site.", type: 'error' });
-      return;
-    }
-    
-    try {
-      const res = await fetch('/api/auth/url');
-      const text = await res.text();
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch (e) {
-        throw new Error(`Server returned invalid response: ${text.substring(0, 100)}...`);
-      }
-      
-      if (!res.ok) {
-        throw new Error(data.error || `Server error: ${res.status}`);
-      }
-      authWindow.location.href = data.url;
-    } catch (err: any) {
-      console.error('Login failed', err);
-      authWindow.close();
-      setNotification({ message: err.message || "Login failed. Please try again.", type: 'error' });
-    }
-  };
-
   const handleLogout = async () => {
-    await fetch('/api/logout', { method: 'POST' });
-    setUser(null);
+    // For profile-based system, "logout" just clears the local ID and generates a new one
+    localStorage.removeItem('career_counselor_profile_id');
+    localStorage.removeItem('career_counselor_data');
     window.location.reload();
   };
 
-  // Persistence Effect (Sync to DB if logged in, otherwise localStorage)
+  // Persistence Effect (Sync to DB)
   useEffect(() => {
-    // Prevent syncing default state over server data during initial load
     if (isLoadingUser) return;
 
-    const dataToSync = { 
-      userProfile, 
-      chatMessages, 
-      evaluation, 
-      suggestedCourses, 
-      roadmap 
+    const syncData = async () => {
+      try {
+        await fetch('/api/user/sync', {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'x-profile-id': profileId
+          },
+          body: JSON.stringify({ 
+            name: userProfile.name, 
+            currentRole: userProfile.currentRole,
+            skills: userProfile.skills,
+            goals: userProfile.goals,
+            chatMessages: chatMessages,
+            evaluation, 
+            suggestedCourses, 
+            roadmap,
+            psychEvaluation: userProfile.psychEvaluation,
+            proficiencyScores: userProfile.proficiencyScores
+          })
+        });
+      } catch (err) {
+        console.error('Sync failed', err);
+      }
     };
 
-    if (user) {
-      const syncData = async () => {
-        try {
-          await fetch('/api/user/sync', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              name: userProfile.name, 
-              currentRole: userProfile.currentRole,
-              skills: userProfile.skills,
-              goals: userProfile.goals,
-              chatMessages: chatMessages,
-              evaluation, 
-              suggestedCourses, 
-              roadmap,
-              psychEvaluation: userProfile.psychEvaluation,
-              proficiencyScores: userProfile.proficiencyScores
-            })
-          });
-          // Also update local storage as a backup
-          localStorage.setItem('career_counselor_data', JSON.stringify(dataToSync));
-        } catch (err) {
-          console.error('Sync failed', err);
-        }
-      };
-
-      const timeoutId = setTimeout(syncData, 1000); 
-      return () => clearTimeout(timeoutId);
-    } else {
-      // Guest user - save to localStorage
-      localStorage.setItem('career_counselor_data', JSON.stringify(dataToSync));
-    }
-  }, [userProfile, chatMessages, evaluation, suggestedCourses, roadmap, user, isLoadingUser]);
+    const timeoutId = setTimeout(syncData, 1000); 
+    return () => clearTimeout(timeoutId);
+  }, [userProfile, chatMessages, evaluation, suggestedCourses, roadmap, profileId, isLoadingUser]);
 
   const resetApp = async () => {
     setConfirmModal({
       title: 'Reset All Data',
       message: 'Are you sure you want to reset all your data? This cannot be undone.',
       onConfirm: async () => {
-        if (user) {
-          try {
-            await fetch('/api/user/reset', { method: 'POST' });
-            window.location.reload();
-          } catch (err) {
-            console.error('Failed to reset cloud data', err);
-            setNotification({ message: 'Failed to reset cloud data. Please try again.', type: 'error' });
-          }
-        } else {
-          localStorage.clear();
+        try {
+          await fetch('/api/user/reset', { 
+            method: 'POST',
+            headers: { 'x-profile-id': profileId }
+          });
           window.location.reload();
+        } catch (err) {
+          console.error('Failed to reset cloud data', err);
+          setNotification({ message: 'Failed to reset cloud data. Please try again.', type: 'error' });
         }
       }
     });
@@ -393,19 +339,18 @@ export default function App() {
     const newHours = (userProfile.learningHours || 0) + hours;
     setUserProfile(prev => ({ ...prev, learningHours: newHours }));
     
-    if (user) {
-      try {
-        await fetch('/api/user/profile', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ learningHours: newHours })
-        });
-        setNotification({ message: `Added ${hours} learning hours!`, type: 'success' });
-      } catch (err) {
-        console.error('Failed to update hours', err);
-      }
-    } else {
-      setNotification({ message: `Locally added ${hours} hours. Login to sync!`, type: 'info' });
+    try {
+      await fetch('/api/user/profile', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-profile-id': profileId
+        },
+        body: JSON.stringify({ learningHours: newHours })
+      });
+      setNotification({ message: `Added ${hours} learning hours!`, type: 'success' });
+    } catch (err) {
+      console.error('Failed to update hours', err);
     }
   };
   const runProficiencyAnalysis = async () => {
@@ -679,18 +624,10 @@ export default function App() {
           </div>
           <div className="flex items-center justify-between">
             <span className="text-slate-500">Auth Status</span>
-            <span className={cn("font-medium", user ? "text-indigo-600" : "text-slate-400")}>
-              {user ? "Authenticated" : "Guest Mode"}
+            <span className={cn("font-medium", isMongoConnected ? "text-emerald-600" : "text-slate-400")}>
+              {isMongoConnected ? "Cloud Sync Active" : "Local Mode"}
             </span>
           </div>
-          {!user && (
-            <button 
-              onClick={handleLogin}
-              className="w-full mt-2 py-1.5 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition-colors"
-            >
-              Login to Sync
-            </button>
-          )}
         </div>
       </nav>
 
@@ -705,29 +642,6 @@ export default function App() {
               exit={{ opacity: 0, y: -20 }}
               className="max-w-5xl mx-auto space-y-8"
             >
-              {!user && (
-                <div className={cn(
-                  "p-4 rounded-2xl border flex flex-col md:flex-row items-center justify-between gap-4 mb-8",
-                  darkMode ? "bg-indigo-500/10 border-indigo-500/20" : "bg-indigo-50 border-indigo-100"
-                )}>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-indigo-600 flex items-center justify-center text-white shrink-0">
-                      <ShieldCheck size={20} />
-                    </div>
-                    <div>
-                      <h4 className={cn("font-bold", darkMode ? "text-indigo-400" : "text-indigo-900")}>Cloud Sync Disabled</h4>
-                      <p className="text-sm text-slate-500">Login with Google to save your progress and access it from any device.</p>
-                    </div>
-                  </div>
-                  <button 
-                    onClick={() => setIsProfileModalOpen(true)}
-                    className="px-6 py-2 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-600/20 whitespace-nowrap"
-                  >
-                    Connect Now
-                  </button>
-                </div>
-              )}
-
               <header>
                 <h2 className="text-3xl font-bold tracking-tight">Welcome back, {userProfile.name}!</h2>
                 <p className="text-slate-500 mt-1">Here's your career progress at a glance.</p>
@@ -1155,21 +1069,26 @@ export default function App() {
                       "p-4 rounded-xl border transition-colors",
                       darkMode ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"
                     )}>
-                      <h5 className={cn("text-sm font-bold mb-2 transition-colors", darkMode ? "text-white" : "text-slate-900")}>1. Google OAuth Setup</h5>
+                      <h5 className={cn("text-sm font-bold mb-2 transition-colors", darkMode ? "text-white" : "text-slate-900")}>1. Cross-Device Sync</h5>
                       <p className="text-xs text-slate-500 leading-relaxed mb-3">
-                        To enable Google Login, add your credentials to the Secrets panel (⚙️ gear icon):
+                        To access your data on another device, use your unique Profile ID:
                       </p>
-                      <ul className="text-xs text-slate-500 space-y-1 list-disc list-inside">
-                        <li><code>GOOGLE_CLIENT_ID</code></li>
-                        <li><code>GOOGLE_CLIENT_SECRET</code></li>
-                        <li><code>SESSION_SECRET</code> (any random string)</li>
-                      </ul>
-                      <p className="text-xs text-slate-500 mt-3">
-                        Add these Redirect URIs to your Google Cloud Console:
-                        <br />
-                        <code className="bg-slate-200 dark:bg-slate-700 px-1 rounded mt-1 block break-all">
-                          {window.location.origin}/auth/google/callback
+                      <div className="flex items-center gap-2 mb-3">
+                        <code className="bg-slate-200 dark:bg-slate-700 px-2 py-1 rounded font-mono text-xs flex-1">
+                          {profileId}
                         </code>
+                        <button 
+                          onClick={() => {
+                            navigator.clipboard.writeText(profileId);
+                            setNotification({ message: "Profile ID copied!", type: 'success' });
+                          }}
+                          className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                        >
+                          <ClipboardCheck size={16} />
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-slate-400 italic">
+                        Note: Anyone with this ID can access your profile. Keep it private.
                       </p>
                     </div>
 
@@ -1177,7 +1096,38 @@ export default function App() {
                       "p-4 rounded-xl border transition-colors",
                       darkMode ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"
                     )}>
-                      <h5 className={cn("text-sm font-bold mb-2 transition-colors", darkMode ? "text-white" : "text-slate-900")}>2. MongoDB Atlas Setup</h5>
+                      <h5 className={cn("text-sm font-bold mb-2 transition-colors", darkMode ? "text-white" : "text-slate-900")}>2. AI Configuration</h5>
+                      <p className="text-xs text-slate-500 leading-relaxed mb-3">
+                        To use advanced AI features (Gemini 3.1 Pro), you must connect your Gemini API key.
+                      </p>
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-2">
+                          <div className={cn(
+                            "w-2 h-2 rounded-full",
+                            hasAIKey ? "bg-emerald-500" : "bg-amber-500"
+                          )} />
+                          <span className="text-xs font-medium text-slate-500">
+                            {hasAIKey ? "AI Connected" : "AI Disconnected"}
+                          </span>
+                        </div>
+                        <button 
+                          onClick={handleConnectAI}
+                          className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-xs font-bold"
+                        >
+                          {hasAIKey ? "Change API Key" : "Connect API Key"}
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-3">
+                        For paid tier models, please select your key from the platform dialog. 
+                        <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="text-indigo-500 hover:underline ml-1">Learn more about billing.</a>
+                      </p>
+                    </div>
+
+                    <div className={cn(
+                      "p-4 rounded-xl border transition-colors",
+                      darkMode ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"
+                    )}>
+                      <h5 className={cn("text-sm font-bold mb-2 transition-colors", darkMode ? "text-white" : "text-slate-900")}>3. MongoDB Atlas Setup</h5>
                       <p className="text-xs text-slate-500 leading-relaxed mb-2">
                         For data persistence, add your connection string:
                       </p>
@@ -1890,27 +1840,6 @@ export default function App() {
                 >
                   Save Changes
                 </button>
-                {user ? (
-                  <button 
-                    onClick={handleLogout}
-                    className={cn(
-                      "w-full py-2 text-sm font-semibold rounded-xl transition-all",
-                      darkMode ? "text-amber-400 hover:bg-amber-900/20" : "text-amber-600 hover:bg-amber-50"
-                    )}
-                  >
-                    Logout
-                  </button>
-                ) : (
-                  <button 
-                    onClick={handleLogin}
-                    className={cn(
-                      "w-full py-2 text-sm font-semibold rounded-xl transition-all",
-                      darkMode ? "text-indigo-400 hover:bg-indigo-900/20" : "text-indigo-600 hover:bg-indigo-50"
-                    )}
-                  >
-                    Login with Google to Sync
-                  </button>
-                )}
                 <button 
                   onClick={resetApp}
                   className={cn(
@@ -1918,7 +1847,7 @@ export default function App() {
                     darkMode ? "text-slate-500 hover:bg-slate-700" : "text-slate-400 hover:bg-slate-100"
                   )}
                 >
-                  Reset Local Data
+                  Reset All Data
                 </button>
               </div>
             </motion.div>
@@ -2088,13 +2017,7 @@ export default function App() {
           darkMode ? "bg-slate-800 border-slate-700 text-indigo-400" : "bg-white border-slate-200 text-indigo-600"
         )}
       >
-        {user?.avatar ? (
-          <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
-        ) : (
-          <>
-            <User size={24} />
-          </>
-        )}
+        <User size={24} />
       </button>
     </div>
   );

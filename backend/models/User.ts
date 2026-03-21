@@ -33,9 +33,8 @@ const ChatMessageSchema = new mongoose.Schema({
 });
 
 const UserSchema = new mongoose.Schema({
-  googleId: { type: String, required: true, unique: true },
-  email: { type: String, required: true },
-  name: String,
+  profileId: { type: String, required: true, unique: true },
+  name: { type: String, default: 'Guest User' },
   avatar: String,
   currentRole: { type: String, default: 'Software Engineer' },
   learningHours: { type: Number, default: 0 },

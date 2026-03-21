@@ -1,9 +1,5 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import passport from 'passport';
-import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
-import session from 'express-session';
-import MongoStore from 'connect-mongo';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -77,188 +73,63 @@ app.use('/api/', apiLimiter);
 
 app.use(express.json());
 
-// Session configuration
-const isProduction = process.env.NODE_ENV === 'production' || !!process.env.VERCEL;
-const sessionConfig: any = {
-  secret: process.env.SESSION_SECRET || 'career-counselor-secret-key-2026',
-  resave: false,
-  saveUninitialized: false,
-  proxy: true,
-  cookie: {
-    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    secure: isProduction,
-    sameSite: isProduction && !process.env.APP_URL?.includes('run.app') ? 'lax' : 'none', // 'none' for iframe, 'lax' for standalone
-    httpOnly: true
+// Profile ID Middleware - Extracts profile ID from headers for cross-device sync
+const profileMiddleware = async (req: any, res: any, next: any) => {
+  const profileId = req.headers['x-profile-id'] || 'default-global-user';
+  
+  try {
+    let user = await User.findOne({ profileId });
+    if (!user) {
+      user = await User.create({
+        profileId,
+        name: 'Guest User',
+        goals: [{ 
+          title: 'Senior Software Architect', 
+          targetDate: '2026-12-01', 
+          description: 'Lead large-scale system designs and mentor teams.' 
+        }]
+      });
+    }
+    req.currentUser = user;
+    next();
+  } catch (err: any) {
+    console.error('❌ Profile Middleware Error:', err);
+    res.status(500).json({ error: 'Failed to load profile' });
   }
 };
 
-if (MONGODB_URI) {
-  try {
-    sessionConfig.store = MongoStore.create({
-      mongoUrl: MONGODB_URI,
-      ttl: 14 * 24 * 60 * 60, // 14 days
-      autoRemove: 'native'
-    });
-    // Handle store errors to prevent app crash
-    sessionConfig.store.on('error', (error: any) => {
-      console.error('❌ MongoDB Session Store Error:', error.message);
-    });
-  } catch (error: any) {
-    console.error('❌ Failed to initialize MongoDB session store:', error.message);
-    console.warn('⚠️ Falling back to in-memory session store.');
-  }
-}
-
-app.use(session(sessionConfig));
-
-app.use(passport.initialize());
-app.use(passport.session());
+app.use('/api/user', profileMiddleware);
+app.use('/api/me', profileMiddleware);
 
 // Normalize APP_URL to remove trailing slash
 // On Vercel, VERCEL_URL is provided but doesn't include https://
 const VERCEL_URL = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null;
 const APP_URL = (process.env.APP_URL || VERCEL_URL || 'http://localhost:3000').replace(/\/$/, '');
 
-if (!process.env.APP_URL && !process.env.VERCEL_URL) {
-  console.warn('⚠️ APP_URL is not defined. Google OAuth might fail if the environment is not localhost.');
-  console.warn(`Current assumed APP_URL: ${APP_URL}`);
-}
-
-// Passport Config
-if (!process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID === 'dummy') {
-  console.warn('⚠️ WARNING: GOOGLE_CLIENT_ID is missing or set to dummy. Google Login will fail with "invalid_client".');
-}
-if (!process.env.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET === 'dummy') {
-  console.warn('⚠️ WARNING: GOOGLE_CLIENT_SECRET is missing or set to dummy. Google Login will fail.');
-}
-
-passport.use(new GoogleStrategy({
-    clientID: process.env.GOOGLE_CLIENT_ID || 'dummy',
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET || 'dummy',
-    callbackURL: `${APP_URL}/auth/google/callback`,
-    proxy: true
-  },
-  async (accessToken, refreshToken, profile, done) => {
-    try {
-      let user = await User.findOne({ googleId: profile.id });
-      if (!user) {
-        user = await User.create({
-          googleId: profile.id,
-          email: profile.emails?.[0].value,
-          name: profile.displayName,
-          avatar: profile.photos?.[0].value,
-          goals: [{ 
-            title: 'Senior Software Architect', 
-            targetDate: '2026-12-01', 
-            description: 'Lead large-scale system designs and mentor teams.' 
-          }]
-        });
-      }
-      return done(null, user);
-    } catch (err) {
-      return done(err as Error);
-    }
-  }
-));
-
-passport.serializeUser((user: any, done) => {
-  done(null, user.id);
-});
-
-passport.deserializeUser(async (id, done) => {
-  try {
-    const user = await User.findById(id);
-    done(null, user);
-  } catch (err) {
-    done(err);
-  }
-});
-
-// Auth Routes
-app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
-
-app.get('/auth/google/callback', 
-  (req, res, next) => {
-    passport.authenticate('google', (err: any, user: any, info: any) => {
-      if (err) {
-        console.error('❌ Passport Auth Error:', err);
-        return res.status(500).send(`Auth Error: ${err.message}. Check if MongoDB is connected.`);
-      }
-      if (!user) {
-        console.warn('⚠️ No user found/created during auth:', info);
-        return res.status(401).send('Access Denied: Google did not return user info or account creation failed.');
-      }
-      req.logIn(user, (loginErr) => {
-        if (loginErr) {
-          console.error('❌ Login Session Error:', loginErr);
-          return next(loginErr);
-        }
-        // Success - send the close window script
-        res.send(`
-          <html>
-            <body>
-              <script>
-                if (window.opener) {
-                  window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS' }, '*');
-                  window.close();
-                } else {
-                  window.location.href = '/';
-                }
-              </script>
-              <p>Authentication successful. This window should close automatically.</p>
-            </body>
-          </html>
-        `);
-      });
-    })(req, res, next);
-  }
-);
-
-app.get('/api/auth/url', (req, res) => {
-  if (!process.env.GOOGLE_CLIENT_ID) {
-    return res.status(500).json({ error: 'GOOGLE_CLIENT_ID is not configured in environment variables.' });
-  }
-  
-  const params = new URLSearchParams({
-    client_id: process.env.GOOGLE_CLIENT_ID,
-    redirect_uri: `${APP_URL}/auth/google/callback`,
-    response_type: 'code',
-    scope: 'profile email',
-  });
-  res.json({ url: `https://accounts.google.com/o/oauth2/v2/auth?${params}` });
-});
-
 app.get('/api/status', (req, res) => {
   res.json({
     mongodb: mongoose.connection.readyState === 1,
-    authenticated: !!req.user,
+    authenticated: true,
     appUrl: APP_URL,
     env: {
-      hasGoogleAuth: !!process.env.GOOGLE_CLIENT_ID && !!process.env.GOOGLE_CLIENT_SECRET,
+      hasGoogleAuth: false,
       hasMongo: !!process.env.MONGODB_URI,
       isProduction: process.env.NODE_ENV === 'production'
     }
   });
 });
 
-app.get('/api/me', (req, res) => {
-  if (req.user) {
-    res.json(req.user);
-  } else {
-    res.status(401).json({ message: 'Not authenticated' });
-  }
+app.get('/api/me', (req: any, res) => {
+  res.json(req.currentUser);
 });
 
 app.post('/api/logout', (req, res) => {
-  req.logout(() => {
-    res.json({ message: 'Logged out' });
-  });
+  res.json({ message: 'Logged out' });
 });
 
 // Data Routes
-app.post('/api/user/sync', async (req, res) => {
-  if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-  const user = req.user as any;
+app.post('/api/user/sync', async (req: any, res) => {
+  const user = req.currentUser;
   try {
     const updatedUser = await User.findByIdAndUpdate(user._id, { 
       ...req.body 
@@ -270,9 +141,8 @@ app.post('/api/user/sync', async (req, res) => {
   }
 });
 
-app.post('/api/user/profile', async (req, res) => {
-  if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-  const user = req.user as any;
+app.post('/api/user/profile', async (req: any, res) => {
+  const user = req.currentUser;
   const updateData: any = {};
   if (req.body.name) updateData.name = req.body.name;
   if (req.body.currentRole) updateData.currentRole = req.body.currentRole;
@@ -282,30 +152,26 @@ app.post('/api/user/profile', async (req, res) => {
   res.json(updatedUser);
 });
 
-app.post('/api/user/skills', async (req, res) => {
-  if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-  const user = req.user as any;
+app.post('/api/user/skills', async (req: any, res) => {
+  const user = req.currentUser;
   const updatedUser = await User.findByIdAndUpdate(user._id, { skills: req.body.skills }, { new: true });
   res.json(updatedUser);
 });
 
-app.post('/api/user/goals', async (req, res) => {
-  if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-  const user = req.user as any;
+app.post('/api/user/goals', async (req: any, res) => {
+  const user = req.currentUser;
   const updatedUser = await User.findByIdAndUpdate(user._id, { goals: req.body.goals }, { new: true });
   res.json(updatedUser);
 });
 
-app.post('/api/user/chat', async (req, res) => {
-  if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-  const user = req.user as any;
+app.post('/api/user/chat', async (req: any, res) => {
+  const user = req.currentUser;
   const updatedUser = await User.findByIdAndUpdate(user._id, { chatMessages: req.body.messages }, { new: true });
   res.json(updatedUser);
 });
 
-app.post('/api/user/evaluation', async (req, res) => {
-  if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-  const user = req.user as any;
+app.post('/api/user/evaluation', async (req: any, res) => {
+  const user = req.currentUser;
   const updatedUser = await User.findByIdAndUpdate(user._id, { 
     evaluation: req.body.evaluation,
     suggestedCourses: req.body.suggestedCourses,
@@ -314,23 +180,20 @@ app.post('/api/user/evaluation', async (req, res) => {
   res.json(updatedUser);
 });
 
-app.post('/api/user/psych', async (req, res) => {
-  if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-  const user = req.user as any;
+app.post('/api/user/psych', async (req: any, res) => {
+  const user = req.currentUser;
   const updatedUser = await User.findByIdAndUpdate(user._id, { psychEvaluation: req.body.psychEvaluation }, { new: true });
   res.json(updatedUser);
 });
 
-app.post('/api/user/proficiency', async (req, res) => {
-  if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-  const user = req.user as any;
+app.post('/api/user/proficiency', async (req: any, res) => {
+  const user = req.currentUser;
   const updatedUser = await User.findByIdAndUpdate(user._id, { proficiencyScores: req.body.proficiencyScores }, { new: true });
   res.json(updatedUser);
 });
 
-app.post('/api/user/reset', async (req, res) => {
-  if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
-  const user = req.user as any;
+app.post('/api/user/reset', async (req: any, res) => {
+  const user = req.currentUser;
   const updatedUser = await User.findByIdAndUpdate(user._id, { 
     skills: [],
     goals: [{ 

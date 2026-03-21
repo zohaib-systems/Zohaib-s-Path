@@ -1,12 +1,16 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Skill, Course, Proficiency, PsychEvaluation, CareerGoal, RoadmapStep, ProficiencyScores, UserProfile } from "../types.js";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+const getAI = () => {
+  const apiKey = process.env.API_KEY || process.env.GEMINI_API_KEY || "";
+  return new GoogleGenAI({ apiKey });
+};
 
 export const getProficiencyCategorization = async (
   skills: Skill[],
   goals: CareerGoal[]
 ): Promise<ProficiencyScores> => {
+  const ai = getAI();
   const model = "gemini-3.1-pro-preview";
   const goalTitles = goals.map(g => g.title).join(", ");
   
@@ -46,6 +50,7 @@ export const getProficiencyCategorization = async (
 };
 
 export const generateRoadmap = async (skills: Skill[], goal: CareerGoal): Promise<RoadmapStep[]> => {
+  const ai = getAI();
   const model = "gemini-3.1-pro-preview";
   
   const response = await ai.models.generateContent({
@@ -89,6 +94,7 @@ export const generatePsychReport = async (
   answers: { question: string, answer: string }[],
   userProfile: any
 ): Promise<PsychEvaluation> => {
+  const ai = getAI();
   const model = "gemini-3.1-pro-preview";
   
   const response = await ai.models.generateContent({
@@ -138,6 +144,7 @@ export const getCareerCounseling = async (
   userProfile: UserProfile,
   roadmap: RoadmapStep[]
 ) => {
+  const ai = getAI();
   const model = "gemini-3.1-pro-preview";
   const systemInstruction = `You are an expert Career Counselor. Your goal is to help users navigate their professional journey.
   
@@ -179,6 +186,7 @@ export const evaluateSkillsAndSuggestCourses = async (skills: Skill[], goal: str
   evaluation: string;
   suggestedCourses: Course[];
 }> => {
+  const ai = getAI();
   const model = "gemini-3.1-pro-preview";
   
   const response = await ai.models.generateContent({
