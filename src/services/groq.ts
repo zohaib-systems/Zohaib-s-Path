@@ -76,17 +76,19 @@ export const generateRoadmap = async (skills: Skill[], goal: CareerGoal): Promis
 Based on the user's current skills and their career goal (with a target date), create a chronological learning roadmap with 4-6 specific milestones.
 Each milestone should have a title, a realistic deadline (relative to today or specific dates in YYYY-MM-DD format before the target date), a list of specific skills to acquire, the tech stack involved, and a brief description.
 
-You MUST respond with a JSON array of objects in this exact format:
-[
-  {
-    "id": "milestone-1",
-    "title": "Milestone Title",
-    "deadline": "YYYY-MM-DD",
-    "skills": ["Skill 1", "Skill 2"],
-    "techStack": ["React", "TypeScript"],
-    "description": "Milestone description..."
-  }
-]`;
+You MUST respond with a JSON object containing a "milestones" array of objects in this exact format:
+{
+  "milestones": [
+    {
+      "id": "milestone-1",
+      "title": "Milestone Title",
+      "deadline": "YYYY-MM-DD",
+      "skills": ["Skill 1", "Skill 2"],
+      "techStack": ["React", "TypeScript"],
+      "description": "Milestone description..."
+    }
+  ]
+}`;
 
   const userPrompt = `Current Date: ${new Date().toISOString().split('T')[0]}
 Current Skills: ${JSON.stringify(skills)}
@@ -94,7 +96,8 @@ Career Goal: "${goal.title}" (Target Date: ${goal.targetDate}, Description: ${go
 
   const text = await callGroq(systemPrompt, userPrompt, true);
   try {
-    const steps = JSON.parse(text || "[]");
+    const data = JSON.parse(text || "{}");
+    const steps = data.milestones || [];
     return steps.map((step: any) => ({ ...step, status: 'pending' }));
   } catch (e) {
     console.error("Failed to parse Roadmap JSON", text);
