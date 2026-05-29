@@ -3,7 +3,6 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createServer as createViteServer } from 'vite';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import session from 'express-session';
@@ -344,8 +343,9 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   });
 });
 
-// Vite Middleware for Development
-if (process.env.NODE_ENV !== 'production') {
+// Vite Middleware for Development (Dynamically imported to avoid bundling Vite/Rollup in production Serverless runtimes)
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
+  const { createServer: createViteServer } = await import('vite');
   const vite = await createViteServer({
     server: { middlewareMode: true },
     appType: 'spa',
@@ -360,7 +360,7 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
-if (process.env.NODE_ENV !== 'production') {
+if (process.env.NODE_ENV !== 'production' && !process.env.VERCEL) {
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
