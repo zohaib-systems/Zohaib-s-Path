@@ -4,6 +4,15 @@ const getApiKey = () => {
   return process.env.GROQ_API_KEY || "";
 };
 
+const cleanJsonText = (text: string): string => {
+  let cleaned = text.trim();
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```[a-zA-Z]*\s*/, "");
+    cleaned = cleaned.replace(/\s*```$/, "");
+  }
+  return cleaned.trim();
+};
+
 const callGroq = async (systemPrompt: string, userPrompt: string, isJson: boolean = false) => {
   const apiKey = getApiKey();
   if (!apiKey) {
@@ -64,7 +73,7 @@ Goals: "${goalTitles}"`;
 
   const text = await callGroq(systemPrompt, userPrompt, true);
   try {
-    return JSON.parse(text || "{}");
+    return JSON.parse(cleanJsonText(text || "{}"));
   } catch (e) {
     console.error("Failed to parse Proficiency JSON", text);
     throw new Error("Failed to parse proficiency scores from AI response.");
@@ -96,7 +105,7 @@ Career Goal: "${goal.title}" (Target Date: ${goal.targetDate}, Description: ${go
 
   const text = await callGroq(systemPrompt, userPrompt, true);
   try {
-    const data = JSON.parse(text || "{}");
+    const data = JSON.parse(cleanJsonText(text || "{}"));
     const steps = data.milestones || [];
     return steps.map((step: any) => ({ ...step, status: 'pending' }));
   } catch (e) {
@@ -131,7 +140,7 @@ Survey Answers: ${JSON.stringify(answers)}`;
 
   const text = await callGroq(systemPrompt, userPrompt, true);
   try {
-    const data = JSON.parse(text || "{}");
+    const data = JSON.parse(cleanJsonText(text || "{}"));
     return {
       ...data,
       date: new Date().toISOString()
@@ -231,7 +240,7 @@ Goal: "${goal}"`;
 
   const text = await callGroq(systemPrompt, userPrompt, true);
   try {
-    return JSON.parse(text || "{}");
+    return JSON.parse(cleanJsonText(text || "{}"));
   } catch (e) {
     console.error("Failed to parse Skill Evaluation JSON", text);
     throw new Error("Failed to evaluate skills and suggest courses from AI response.");
