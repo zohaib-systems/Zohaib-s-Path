@@ -62,6 +62,7 @@ export interface ProficiencyScores {
 export interface UserProfile {
   name: string;
   currentRole: string;
+  avatar?: string;
   skills: Skill[];
   goals: CareerGoal[];
   psychEvaluation?: PsychEvaluation;

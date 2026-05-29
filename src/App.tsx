@@ -51,7 +51,7 @@ import {
 } from 'recharts';
 import Markdown from 'react-markdown';
 import { Skill, Course, Proficiency, UserProfile, ChatMessage, PsychEvaluation, RoadmapStep, CareerGoal, ProficiencyScores } from './types.js';
-import { getCareerCounseling, evaluateSkillsAndSuggestCourses, generatePsychReport, generateRoadmap, getProficiencyCategorization } from './services/gemini.js';
+import { getCareerCounseling, evaluateSkillsAndSuggestCourses, generatePsychReport, generateRoadmap, getProficiencyCategorization } from './services/groq.js';
 import { cn } from './lib/utils.js';
 
 const INITIAL_SKILLS: Skill[] = [];
@@ -73,6 +73,8 @@ export default function App() {
   const [isMongoConnected, setIsMongoConnected] = useState(true);
   const [hasAIKey, setHasAIKey] = useState(true); // Default to true, will check in useEffect
   const [darkMode, setDarkMode] = useState(false);
+  const [isOAuthAuthenticated, setIsOAuthAuthenticated] = useState(false);
+  const [hasGoogleAuth, setHasGoogleAuth] = useState(false);
 
   // Check for AI API Key selection (for paid tier models)
   useEffect(() => {
@@ -82,10 +84,10 @@ export default function App() {
         // @ts-ignore
         const hasKey = await window.aistudio.hasSelectedApiKey();
         // Also check if default key is present
-        const hasDefaultKey = !!process.env.GEMINI_API_KEY;
+        const hasDefaultKey = !!process.env.GROQ_API_KEY;
         setHasAIKey(hasKey || hasDefaultKey);
       } else {
-        setHasAIKey(!!process.env.GEMINI_API_KEY);
+        setHasAIKey(!!process.env.GROQ_API_KEY);
       }
     };
     checkAIKey();
@@ -142,8 +144,8 @@ export default function App() {
   const [isGeneratingPsychReport, setIsGeneratingPsychReport] = useState(false);
   const [isAnalyzingProficiency, setIsAnalyzingProficiency] = useState(false);
 
-  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-  const hasGeminiKey = Boolean(GEMINI_API_KEY);
+  const GROQ_API_KEY = process.env.GROQ_API_KEY;
+  const hasGroqKey = Boolean(GROQ_API_KEY);
 
   // Fetch User on Mount
   useEffect(() => {
@@ -155,6 +157,8 @@ export default function App() {
         if (res.ok) {
           const status = await res.json();
           setIsMongoConnected(status.mongodb);
+          setIsOAuthAuthenticated(status.isAuthenticated);
+          setHasGoogleAuth(status.env.hasGoogleAuth);
         }
       } catch (err) {
         console.error('Status check failed', err);
@@ -177,6 +181,7 @@ export default function App() {
         setUserProfile({
           name: data.name || 'Guest User',
           currentRole: data.currentRole || 'Software Engineer',
+          avatar: data.avatar,
           skills: data.skills || [],
           goals: data.goals || [],
           psychEvaluation: data.psychEvaluation,
@@ -196,7 +201,11 @@ export default function App() {
   };
 
   const handleLogout = async () => {
-    // For profile-based system, "logout" just clears the local ID and generates a new one
+    try {
+      await fetch('/api/logout', { method: 'POST' });
+    } catch (err) {
+      console.error('Logout failed', err);
+    }
     localStorage.removeItem('career_counselor_profile_id');
     localStorage.removeItem('career_counselor_data');
     window.location.reload();
@@ -624,8 +633,8 @@ export default function App() {
           </div>
           <div className="flex items-center justify-between">
             <span className="text-slate-500">Auth Status</span>
-            <span className={cn("font-medium", isMongoConnected ? "text-emerald-600" : "text-slate-400")}>
-              {isMongoConnected ? "Cloud Sync Active" : "Local Mode"}
+            <span className={cn("font-medium", isOAuthAuthenticated ? "text-indigo-600 dark:text-indigo-400" : (isMongoConnected ? "text-emerald-600" : "text-slate-400"))}>
+              {isOAuthAuthenticated ? "Google Account" : (isMongoConnected ? "Guest Profile" : "Local Mode")}
             </span>
           </div>
         </div>
@@ -1070,26 +1079,83 @@ export default function App() {
                       darkMode ? "bg-slate-800/50 border-slate-700" : "bg-slate-50 border-slate-200"
                     )}>
                       <h5 className={cn("text-sm font-bold mb-2 transition-colors", darkMode ? "text-white" : "text-slate-900")}>1. Cross-Device Sync</h5>
-                      <p className="text-xs text-slate-500 leading-relaxed mb-3">
-                        To access your data on another device, use your unique Profile ID:
-                      </p>
-                      <div className="flex items-center gap-2 mb-3">
-                        <code className="bg-slate-200 dark:bg-slate-700 px-2 py-1 rounded font-mono text-xs flex-1">
-                          {profileId}
-                        </code>
-                        <button 
-                          onClick={() => {
-                            navigator.clipboard.writeText(profileId);
-                            setNotification({ message: "Profile ID copied!", type: 'success' });
-                          }}
-                          className="p-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-                        >
-                          <ClipboardCheck size={16} />
-                        </button>
-                      </div>
-                      <p className="text-[10px] text-slate-400 italic">
-                        Note: Anyone with this ID can access your profile. Keep it private.
-                      </p>
+                      
+                      {isOAuthAuthenticated ? (
+                        <div className="space-y-3">
+                          <p className="text-xs text-slate-500 leading-relaxed">
+                            You are signed in and syncing securely via Google OAuth:
+                          </p>
+                          <div className={cn(
+                            "flex items-center gap-3 p-3 rounded-xl border transition-colors",
+                            darkMode ? "bg-slate-900 border-slate-700" : "bg-white border-slate-200"
+                          )}>
+                            {userProfile.avatar ? (
+                              <img src={userProfile.avatar} alt="Avatar" className="w-10 h-10 rounded-full border border-indigo-200" />
+                            ) : (
+                              <div className="w-10 h-10 rounded-full bg-indigo-600 text-white flex items-center justify-center font-bold text-sm">
+                                {userProfile.name?.[0] || 'G'}
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className={cn("text-xs font-bold truncate transition-colors", darkMode ? "text-white" : "text-slate-800")}>
+                                {userProfile.name}
+                              </p>
+                              <p className="text-[10px] text-slate-400">Secure Cloud Synchronization Active</p>
+                            </div>
+                            <button
+                              onClick={handleLogout}
+                              className="px-3 py-1.5 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/30 rounded-lg hover:bg-red-100 dark:hover:bg-red-950/40 transition-colors text-xs font-bold"
+                            >
+                              Sign Out
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {hasGoogleAuth && (
+                            <div>
+                              <p className="text-xs text-slate-500 leading-relaxed mb-2">
+                                Sign in with Google to securely sync your career path across all your devices:
+                              </p>
+                              <a
+                                href="/auth/google"
+                                className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-600 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors text-xs font-bold shadow-sm"
+                              >
+                                <svg className="w-4 h-4" viewBox="0 0 24 24">
+                                  <path fill="#EA4335" d="M12 5.04c1.62 0 3.08.56 4.22 1.65l3.15-3.15C17.45 1.74 14.93 1 12 1 7.35 1 3.39 3.66 1.39 7.56l3.89 3.02C6.22 7.29 8.89 5.04 12 5.04z" />
+                                  <path fill="#4285F4" d="M23.49 12.27c0-.81-.07-1.59-.2-2.34H12v4.58h6.48c-.28 1.48-1.12 2.74-2.38 3.59l3.7 2.87c2.16-1.99 3.69-4.92 3.69-8.7z" />
+                                  <path fill="#FBBC05" d="M5.28 14.62c-.25-.76-.39-1.57-.39-2.41s.14-1.65.39-2.41L1.39 6.78C.5 8.56 0 10.53 0 12.62s.5 4.06 1.39 5.84l3.89-3.84z" />
+                                  <path fill="#34A853" d="M12 23c3.24 0 5.97-1.07 7.96-2.91l-3.7-2.87c-1.18.79-2.69 1.26-4.26 1.26-3.11 0-5.78-2.25-6.72-5.54l-3.89 3.02C3.39 19.34 7.35 23 12 23z" />
+                                </svg>
+                                Sign In with Google
+                              </a>
+                            </div>
+                          )}
+
+                          <div className="pt-2 border-t border-slate-100 dark:border-slate-800/60">
+                            <p className="text-xs text-slate-500 leading-relaxed mb-2">
+                              Or use your unique anonymous Profile ID for local fallback:
+                            </p>
+                            <div className="flex items-center gap-2 mb-2">
+                              <code className="bg-slate-200 dark:bg-slate-700 px-2 py-1.5 rounded font-mono text-xs flex-1 truncate">
+                                {profileId}
+                              </code>
+                              <button 
+                                onClick={() => {
+                                  navigator.clipboard.writeText(profileId);
+                                  setNotification({ message: "Profile ID copied!", type: 'success' });
+                                }}
+                                className="p-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                              >
+                                <ClipboardCheck size={16} />
+                              </button>
+                            </div>
+                            <p className="text-[10px] text-slate-400 italic">
+                              Note: Anyone with this ID can access your profile. Keep it private.
+                            </p>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div className={cn(
@@ -1098,7 +1164,7 @@ export default function App() {
                     )}>
                       <h5 className={cn("text-sm font-bold mb-2 transition-colors", darkMode ? "text-white" : "text-slate-900")}>2. AI Configuration</h5>
                       <p className="text-xs text-slate-500 leading-relaxed mb-3">
-                        To use advanced AI features (Gemini 3.1 Pro), you must connect your Gemini API key.
+                        To use advanced AI features (Llama-3.3-70b-versatile), you must connect your Groq API key.
                       </p>
                       <div className="flex items-center justify-between gap-4">
                         <div className="flex items-center gap-2">
@@ -1118,8 +1184,8 @@ export default function App() {
                         </button>
                       </div>
                       <p className="text-[10px] text-slate-400 mt-3">
-                        For paid tier models, please select your key from the platform dialog. 
-                        <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="text-indigo-500 hover:underline ml-1">Learn more about billing.</a>
+                        Please set the GROQ_API_KEY in your secrets panel or .env.local file. 
+                        <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer" className="text-indigo-500 hover:underline ml-1">Get your key from Groq Console.</a>
                       </p>
                     </div>
 

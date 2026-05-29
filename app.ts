@@ -6,6 +6,10 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import session from 'express-session';
+import MongoStore from 'connect-mongo';
+import passport from 'passport';
+import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { User } from './backend/models/User.js'; 
 
 dotenv.config();
@@ -13,8 +17,98 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
+// Normalize APP_URL to remove trailing slash
+const VERCEL_URL = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null;
+const APP_URL = (process.env.APP_URL || VERCEL_URL || 'http://localhost:3000').replace(/\/$/, '');
+
 // Trust proxy for secure cookies behind nginx
 app.set('trust proxy', 1);
+
+// Express Session Middleware with MongoDB Store
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'zohaibs-path-session-secret',
+  resave: false,
+  saveUninitialized: false,
+  store: process.env.MONGODB_URI ? MongoStore.create({
+    mongoUrl: process.env.MONGODB_URI,
+    ttl: 30 * 24 * 60 * 60 // 30 days
+  }) : undefined,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+  }
+}));
+
+// Initialize Passport
+app.use(passport.initialize());
+app.use(passport.session());
+
+// Configure Google OAuth Strategy
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+
+if (GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET) {
+  passport.use(new GoogleStrategy({
+      clientID: GOOGLE_CLIENT_ID,
+      clientSecret: GOOGLE_CLIENT_SECRET,
+      callbackURL: `${APP_URL}/auth/google/callback`,
+      proxy: true
+    },
+    async (accessToken, refreshToken, profile, done) => {
+      try {
+        const googleId = profile.id;
+        const name = profile.displayName || 'Google User';
+        const avatar = profile.photos?.[0]?.value || '';
+        const profileId = `google_${googleId}`;
+
+        let user = await User.findOne({ profileId });
+        if (!user) {
+          user = await User.create({
+            profileId,
+            name,
+            avatar,
+            currentRole: 'Software Engineer',
+            goals: [{ 
+              title: 'Senior Software Architect', 
+              targetDate: '2026-12-01', 
+              description: 'Lead large-scale system designs and mentor teams.' 
+            }],
+            proficiencyScores: {
+              Frontend: 0,
+              Backend: 0,
+              DevOps: 0,
+              DataScience: 0,
+              MachineLearning: 0
+            }
+          });
+        } else {
+          // Sync current Google info if updated
+          user.name = name;
+          user.avatar = avatar;
+          await user.save();
+        }
+        return done(null, user);
+      } catch (err) {
+        return done(err);
+      }
+    }
+  ));
+} else {
+  console.warn('⚠️ GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are not defined. Google OAuth features will be disabled.');
+}
+
+passport.serializeUser((user: any, done) => {
+  done(null, user.id);
+});
+
+passport.deserializeUser(async (id, done) => {
+  try {
+    const user = await User.findById(id);
+    done(null, user);
+  } catch (err) {
+    done(err);
+  }
+});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -75,6 +169,13 @@ app.use(express.json());
 
 // Profile ID Middleware - Extracts profile ID from headers for cross-device sync
 const profileMiddleware = async (req: any, res: any, next: any) => {
+  // 1. If user is authenticated via Google (Passport), use it directly!
+  if (req.isAuthenticated && req.isAuthenticated() && req.user) {
+    req.currentUser = req.user;
+    return next();
+  }
+
+  // 2. Otherwise, fall back to x-profile-id header (for guest profiles)
   const profileId = req.headers['x-profile-id'] || 'default-global-user';
   
   try {
@@ -101,30 +202,42 @@ const profileMiddleware = async (req: any, res: any, next: any) => {
 app.use('/api/user', profileMiddleware);
 app.use('/api/me', profileMiddleware);
 
-// Normalize APP_URL to remove trailing slash
-// On Vercel, VERCEL_URL is provided but doesn't include https://
-const VERCEL_URL = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null;
-const APP_URL = (process.env.APP_URL || VERCEL_URL || 'http://localhost:3000').replace(/\/$/, '');
-
-app.get('/api/status', (req, res) => {
+app.get('/api/status', (req: any, res) => {
   res.json({
     mongodb: mongoose.connection.readyState === 1,
     authenticated: true,
+    isAuthenticated: req.isAuthenticated ? req.isAuthenticated() : false,
     appUrl: APP_URL,
     env: {
-      hasGoogleAuth: false,
+      hasGoogleAuth: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
       hasMongo: !!process.env.MONGODB_URI,
       isProduction: process.env.NODE_ENV === 'production'
     }
   });
 });
 
+// Google OAuth Login Route
+app.get('/auth/google', (req, res, next) => {
+  passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
+});
+
+// Google OAuth Callback Route
+app.get('/auth/google/callback', 
+  passport.authenticate('google', { failureRedirect: '/?error=auth_failed' }),
+  (req, res) => {
+    res.redirect('/');
+  }
+);
+
 app.get('/api/me', (req: any, res) => {
   res.json(req.currentUser);
 });
 
-app.post('/api/logout', (req, res) => {
-  res.json({ message: 'Logged out' });
+app.post('/api/logout', (req: any, res: any, next: any) => {
+  req.logout((err: any) => {
+    if (err) return next(err);
+    res.json({ message: 'Logged out' });
+  });
 });
 
 // Data Routes
